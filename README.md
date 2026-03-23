@@ -5,8 +5,8 @@
 ###  Overview
 This project analyzes the relationship between regional GDP, R&D expenditures, and education across Germany (2017–2019).
 The goal is to explore spatial patterns and test whether economic development, innovation, and education are correlated across regions.
-**_R is the main programming language!
-_**
+
+_**R is the main programming language!**_
 ### Objectives
 - Analyze spatial distribution of GDP and R&D
 - Examine relationship between education and economic indicators
