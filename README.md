@@ -1,19 +1,20 @@
 # germany-regional-analysis
 
-# Germany Regional Economic Analysis
+## Germany Regional Economic Analysis
 
-##  Overview
+###  Overview
 This project analyzes the relationship between regional GDP, R&D expenditures, and education across Germany (2017–2019).
 The goal is to explore spatial patterns and test whether economic development, innovation, and education are correlated across regions.
-
-## Objectives
+**_R is the main programming language!
+_**
+### Objectives
 - Analyze spatial distribution of GDP and R&D
 - Examine relationship between education and economic indicators
 - Identify regional disparities
 - Apply spatial econometrics (Moran’s I)
 
 
-## Data
+### Data
 Data sources:
 - Eurostat
 - German official statistics (Destatis)
@@ -26,7 +27,7 @@ Variables used:
 - Regional geometry (spatial data)
 
 
-## Tools & Technologies
+### Tools & Technologies
 - R
 - Packages:
   - `dplyr`, `tidyr`
@@ -35,25 +36,24 @@ Variables used:
   - `spdep` (spatial analysis)
   - `mice` (data imputation)
 
----
 
-##  Key Analysis
+###  Key Analysis
 
-### 1. Spatial Visualization
+#### 1. Spatial Visualization
 - Choropleth maps for GDP and R&D
 - Bubble maps for student rates
 - Animated maps across years
 
-### 2. Relationship Analysis
+#### 2. Relationship Analysis
 - GDP vs R&D
 - R&D vs Education
 - GDP vs Education
 
-### 3. Spatial Econometrics
+#### 3. Spatial Econometrics
 - Global Moran’s I → strong positive spatial autocorrelation (~0.9)
 - Local Moran’s I → identification of clusters (hotspots & cold spots)
 
-## 🔍 Key Findings
+### Key Findings
 - Strong geographical clustering of economic activity
 - Southern regions (Bavaria, Baden-Württemberg) dominate in GDP and R&D
 - Eastern regions lag behind economically
