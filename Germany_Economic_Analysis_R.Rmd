@@ -1,0 +1,1226 @@
+---
+title: "Germany Economic Analysis"
+author: "Group Germany"
+date: "2024-12-03"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(tidyverse)
+library(tmap)
+library(sf)
+library(RColorBrewer)
+library(gifski)
+
+setwd("C:/Users/User/OneDrive/Рабочий стол/FINAL")
+```
+
+## SECTION 1
+
+In the first section, we make an analysis of the spatial distribution of
+GDP and Research and Development (R&D) expenditures across Germany’s
+regions from the years 2017 to 2019. The main goal here is to see the
+pattern of how the geographical distribution of these two variables
+correlates. The hypothesis here is whether both variables have a
+positive impact on each other, while having also a strong correlation.
+Thus by conducting this analysis, we can draw conclusions regarding the
+relationship between these two variables, in our case for Germany.
+
+**Data Preparation:**
+
+Data preparation is one of the most crucial steps. After cleaning,
+tidying, and transforming the data, the final dataset used for analysis,
+referred to as deu, has the following relevant variables:
+
+-   **GDP:** Regional GDP in millions of euros for each region from 2017
+    to 2019.
+
+-   **R&D:** Regional R&D expenditures in millions for each region.
+
+-   **Region:** The name of the federal state or region in Germany
+    (total of 16 regions).
+
+-   **Year:** The period (2017, 2018, 2019).
+
+-   **geometry:** Spatial data for each region of Germany, containing
+    values in multi polygons.
+
+We also used the sf package to convert the dataset into a spatial
+object, deu, to improve mapping so it could be more precise.
+
+## PRE-PROCESS DATA
+
+```{r, warning=FALSE, include=TRUE}
+############################ First stage
+
+#We start the task by importing first dataset in xlsx format of one of key variables in our 
+#research, which is GDP by region in mil EU.
+
+gdp <- read_xlsx("gdp.xlsx", sheet = "Sheet 1", skip=7)
+
+#remove unnecessary columns
+gdp <- gdp %>%
+  select(-starts_with("..."))
+
+#remove NA values
+gdp <- na.omit(gdp)
+
+#renaming for appropriate name
+gdp <- rename(gdp, Region = TIME)
+
+#selecting relevant years
+gdp <- select(gdp,'Region','2017','2018','2019')
+
+#Tidying the data by making it longer and more organized. 
+#Year should be considered as value
+gdp <- gdp %>%
+  pivot_longer(
+    cols = "2017":"2019",
+    names_to = "Year",                           
+    values_to = "GDP_mln")
+
+#creating a list of region names corresponding for each subregion
+region_to_state <- list(
+  "Baden-Württemberg_" = c("Stuttgart", "Karlsruhe", "Freiburg", "Tübingen"),
+  "Bayern_" = c("Oberbayern", "Niederbayern", "Oberpfalz", "Oberfranken", "Mittelfranken", "Unterfranken", "Schwaben"),
+  "Berlin_" = "Berlin",
+  "Brandenburg_" = "Brandenburg",
+  "Bremen_" = "Bremen",
+  "Hamburg_" = "Hamburg",
+  "Hessen_" = c("Darmstadt", "Gießen", "Kassel"),
+  "Mecklenburg-Vorpommern_"="Mecklenburg-Vorpommern",
+  "Niedersachsen_" = c("Braunschweig", "Hannover", "Lüneburg", "Weser-Ems"),
+  "Nordrhein-Westfalen_" = c("Köln", "Münster", "Detmold", "Arnsberg"),
+  "Rheinland-Pfalz_" = c("Rheinhessen-Pfalz","Koblenz","Trier"),
+  "Saarland_" = "Saarland",
+  "Sachsen_" = c("Dresden", "Chemnitz", "Leipzig"),
+  "Sachsen-Anhalt_" = "Sachsen-Anhalt",
+  "Schleswig-Holstein_" = "Schleswig-Holstein",
+  "Thüringen_" = "Thüringen")
+
+#unlisting the previous list
+region_to_state_vec <- unlist(region_to_state)
+
+#creating new column of regions matching each subregion
+gdp$FederalState <- names(region_to_state_vec)[match(gdp$Region, region_to_state_vec)]
+
+#separating columns values to remove unecessary signs
+gdp <- gdp %>%
+  separate(FederalState, into = c("FederalState", "number"), sep = "_")
+
+#removing unecessary columns and renaming federal states to regions for comfort use
+gdp <- gdp %>%
+  select(-"number", -"Region") %>%
+  rename(Region = FederalState)
+
+#grouping region and year variable to sum up GDP values for each unique region
+gdp <- gdp %>%
+  group_by(Region, Year) %>%
+  summarize(GDP_mln = sum(GDP_mln))
+
+############################ Second stage
+
+#Now we import the second variable, which is regarding Research and Development 
+#expenditures in mil EU
+rd <- read_xlsx("R&D expenditure and staff.xlsx")
+
+#remove NA values, extra columns, and filter for EUR mn
+rd <- na.omit(rd)
+rd <- filter(rd, Unit=='EUR mn')
+rd <- select(rd, -c("Unit","Type"))
+
+#transforming columns of regions to a longer format
+rd <- rd %>%
+  pivot_longer(
+    cols = "Baden-Württemberg":"Thüringen",
+    names_to = "Region",
+    values_to = "R&D expenditure"
+  )
+
+#transforming unique sector names to columns to make dataset wider
+rd <- pivot_wider(rd,names_from='Sector', 
+                  values_from='R&D expenditure')
+
+#to show needed variables
+rd <- select(rd, Year, Region, Total)
+
+#Merging two variables' datasets into one
+gdp_rd <- merge(gdp, rd , by=c('Region', 'Year'))
+
+############################ Third stage
+
+#Now we import the shapefile containing Germany map data
+deu <- read_sf('gadm41_DEU_2.shp')
+
+#renaming for appropriate name
+deu <- rename(deu, Region=NAME_1)
+
+#Merging every dataset into one
+deu <- merge(deu, gdp_rd, by='Region')
+
+#renaming for appropriate name
+deu <- rename(deu, "R&D_mln"=Total)
+
+#to show needed variables
+deu <- select(deu, Region, Year, GDP_mln, "R&D_mln", geometry)
+deu_all<-select(deu, Region, Year, GDP_mln, "R&D_mln", geometry)
+
+#convert to sf format for more precision
+section_1_data <- st_as_sf(deu)
+
+```
+
+## VIZUALIZATION OF SECTION 1
+
+**Visualization of Regional Distributions:**
+
+To properly understand the spatial distribution, we visualized the
+distribution of GDP and R&D spendings across Germany using choropleth
+maps. The first map represents **Regional GDP**, and the second one
+shows **R&D expenditures**.
+
+-   **GDP Map:** The choropleth map for GDP reveals regions with higher
+    GDP values, typically represented by darker shades, in which
+    dark-blue for the highest and light-yellow for the lowest values.
+    The southern regions, such as **Bavaria** and **Baden-Württemberg**,
+    and also some parts of western Germany stand out with darker shades,
+    indicating higher economic development. In comparison, the eastern
+    regions show lighter shades, representing lower GDP values.
+
+-   **R&D Map:** The distribution of R&D expenditures follows a similar
+    pattern, with dark-red for the highest and light-yellow for the
+    lowest numbers of expenditure.
+
+```{r, warning=FALSE, include=TRUE}
+plot1 <- tm_shape(section_1_data) +
+  tm_polygons(col = "GDP_mln",
+              style = "pretty",          
+              palette = brewer.pal(9, "YlGnBu"), 
+              border.col = "black",      
+              lwd = 0.2) +
+  tm_facets(along = "Year", free.coords = FALSE) +
+  tm_layout(
+    main.title.size = 2,
+    main.title.position = "center",
+    main.title.fontface = "bold",
+    legend.width = 4,
+    legend.title.size = 1,          
+    legend.text.size = 1, 
+    legend.outside = TRUE,
+    legend.position = c("left","bottom"),
+    bg.color = "#E0FFFF",
+    frame = FALSE) +
+  tm_compass(
+    type = "8star",                    
+    position = c("left", "bottom"),      
+    size = 2                           
+  )
+
+
+#Plotting the second variable
+plot2 <- tm_shape(section_1_data) +
+  tm_polygons(col = "R&D_mln",
+              style = "pretty",          
+              palette = brewer.pal(9, "YlOrRd"), 
+              border.col = "black",      
+              lwd = 0.2) + 
+  tm_facets(along = "Year", free.coords = FALSE) +
+  tm_layout(
+    main.title.size = 2,
+    main.title.position = "center",
+    main.title.fontface = "bold",
+    legend.width = 4,
+    legend.title.size = 1,          
+    legend.text.size = 1, 
+    legend.outside = TRUE,
+    legend.position = c("left","bottom"),
+    bg.color = "#FFEFDB",
+    frame = FALSE) +
+  tm_compass(
+    type = "8star",                    
+    position = c("left", "bottom"),      
+    size = 2                           
+  )
+```
+
+```{r,warning=FALSE}
+#Animating maps of two variables
+tmap_animation(plot1, filename = "gdp.gif", delay = 90)
+tmap_animation(plot2, filename = "rd.gif", delay = 90)
+```
+
+## RESULTS OF VIZUALIZATION
+
+## GDP per region
+
+![](gdp.gif)
+
+## R&D expenditures
+
+![](rd.gif)
+
+**Interpretation of Patterns:**
+
+The pattern of the darker and lighter regions across both maps after
+plotting them suggests a relatively strong correlation between **R&D
+investment** and **GDP performance** across German regions.
+Specifically:
+
+-   **Southern Regions:** **Bavaria (Bayern)** and
+    **Baden-Württemberg**, with their well-developed industrial progress
+    and infrastructure, show high values for both GDP and R&D
+    consistently for 3 years.
+
+-   **Eastern Regions:** The regions in eastern Germany surrounding
+    Berlin, have the opposite case with lower R&D investments and GDP
+    values. This pattern may suggest that these regions faced some
+    challenges in the economy from 2017 to 2019, which can be possibly
+    explained by historical factors in that region.
+
+-   **Western Regions:** These regions in western Germany demonstrate
+    quite high indicators for variables’ distributions while being
+    approximately lower than southern Germany and higher than eastern
+    Germany.
+
+## CONCLUSION OF SECTION 1
+
+Overall, the maps showcase very close geographical patterns between
+**GDP** and **R&D expenditures**, with higher values for both variables
+concentrated in the southern and western regions of Germany. The visual
+patterns shown by choropleth maps indicate that higher R&D investments
+correlate with better economic output, in our case measured in GDP.
+However, the lighter shades in the eastern regions show the opposite
+situation with lower values. Nevertheless, conducting a choropleth map
+analysis suggests that these results generally support our proposed
+hypothesis, within our case. These observations support the thought that
+investment growth in research and development, specifically in
+light-shaded regions of Germany, is required to make the whole of
+Germany having relatively the same colors.
+
+**References**
+
+[1] Ozturk, F. O. (2022). The Interaction Among R&D Expenses and
+Economic Growth Evidence From EU Transition
+Economies.<https://www.igi-global.com/gateway/chapter/301884>
+
+[2]     Moustapha, A., Yu, Q. (2020). Innovation Effect Through Research
+and Development on Economic Growth in 35 OECD
+Countries.<https://typeset.io/pdf/innovation-effect-through-research-and-development-on-3602rf67uh.pdf>
+
+[3]     D. Gaidhani, N. Nair, S. Jadhav, S. Rastogi and V. Mrudula
+Bhimavarapu (2022), Impact of Research and Development on The Gdp Growth
+Rate of Nations: Evidence Using Panel
+Data.<https://ieeexplore.ieee.org/document/9786420>
+
+[4]     Islamoglu, E. (2017). Causality Relationship of Research &
+Development Investment Expenditures and Gross Domestic Product:
+Comparison of Turkey and Selected Oecd
+Countries.<https://www.researchgate.net/publication/340875546_Causality_Relationship_of_Research_Development_Investment_Expenditures_and_Gross_Domestic_Product_Comparison_of_Turkey_and_Selected_Oecd_Countries>
+
+[5]     Meo, SA., Al Masri, AA., Usmani, AM., Memon, AN., Zaidi, SZ.
+(2013), Correction: Impact of GDP, Spending on R&D, Number of
+Universities and Scientific Journals on Research Publications among
+Asian
+Countries.<https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0066449>
+
+## SECTION 2
+
+Building upon the analysis in Section 1, this section introduces the
+**student rate of higher education** as an additional variable to assess
+the role of education in economic development. Following the work of
+Oketch et al. (2014), education is recognized as a significant driver of
+economic growth through the enhancement of human capital. Grant (2017)
+considered that the human element consists of three most important parts
+and education is one of them. This section also looks for the
+correlation between education and R&D expenditures, testing the
+hypothesis that regions with stronger R&D investment and better economic
+development have more students. However, the results show a more complex
+reality where this hypothesis does not consistently hold.
+
+```{r, message=FALSE, include=FALSE}
+
+library(viridis)
+library(sf)
+library(VIM)
+library(mice)
+library(foreign)
+
+```
+
+## DATASETS
+
+```{r, warning=FALSE, include=FALSE}
+
+#open necessary file and choose sheets 
+
+#our key variables are GDP, education(number of students) and R&D expenditure
+
+education <- read_excel("Population (aged 15 and over).xlsx", sheet = 'Used')
+RD<-read_excel('R&D expenditure and staff.xlsx')
+gdp<-read_excel('gdp.xlsx',sheet='Sheet 1',skip=7)
+germany<- st_read('gadm41_DEU_1.shp')
+
+######################
+#rename for merging later and select needed columns
+germany<-rename(germany, Region=NAME_1)
+germany<-select(germany,4,12)
+
+
+```
+
+## DATA PREPARATION
+
+We found data from various sources and prepared it for analysis. The
+final dataset, all_data, includes the following variables: **GDP:**
+Regional GDP in millions of euros (2017–2019). **Students:** Number of
+students in each region (2017–2019). **R&D:** Regional R&D expenditures
+in millions (2017–2019). **Region:** The name of Germany’s 16 federal
+states. **geometry:** Geometric data in polygon format for spatial
+visualizations.
+
+R packages such as sf, dplyr, and tmap were used for data processing,
+visualization, and spatial analysis. The dataset was converted into an
+sf object to enable precise mapping and visual analysis.
+
+## PRE-PROCESS GDP DATA
+
+```{r,warning=FALSE, include=TRUE}
+#same for gdp and also omit NAs
+gdp<-select(gdp,TIME,starts_with('20'))
+gdp<-rename(gdp,Region=TIME)
+gdp<-na.omit(gdp)
+gdp<-select(gdp,'Region','2017','2018','2019')
+
+
+########################################################
+#create a list of regions and then assign the necessary subregions to them 
+region_to_state <- list(
+  "Baden-Württemberg_" = c("Stuttgart", "Karlsruhe", "Freiburg", "Tübingen"),
+  "Bayern_" = c("Oberbayern", "Niederbayern", "Oberpfalz", "Oberfranken", "Mittelfranken", "Unterfranken", "Schwaben"),
+  "Berlin_" = "Berlin",
+  "Brandenburg_" = "Brandenburg",
+  "Bremen_" = "Bremen",
+  "Hamburg_" = "Hamburg",
+  "Hessen_" = c("Darmstadt", "Gießen", "Kassel"),
+  "Mecklenburg-Vorpommern_"="Mecklenburg-Vorpommern",
+  "Niedersachsen_" = c("Braunschweig", "Hannover", "Lüneburg", "Weser-Ems"),
+  "Nordrhein-Westfalen_" = c("Köln", "Münster", "Detmold", "Arnsberg"),
+  "Rheinland-Pfalz_" = c("Rheinhessen-Pfalz","Koblenz","Trier"),
+  "Saarland_" = "Saarland",
+  "Sachsen_" = c("Dresden", "Chemnitz", "Leipzig"),
+  "Sachsen-Anhalt_" = "Sachsen-Anhalt",
+  "Schleswig-Holstein_" = "Schleswig-Holstein",
+  "Thüringen_" = "Thüringen")
+#unlist previous list to create vector
+region_to_state_vec <- unlist(region_to_state)
+#creating new columns for region(Federal_Sates) using previous vector and match them with regions
+gdp$Federal_State <- names(region_to_state_vec)[match(gdp$Region, region_to_state_vec)]
+
+#cleaning Federal States column
+gdp<-gdp%>%
+  separate(Federal_State, into = c("Federal_State", "number"), sep = "_")
+#remove unnecessary column
+gdp$number=NULL
+
+########################################################
+# change GDP data to long format, group, and summarize
+gdp<-pivot_longer(gdp,cols=starts_with('20'),
+                            values_to='Value',
+                            names_to='Year')
+                         
+gdp<-gdp%>%
+  group_by(Federal_State,Year)%>%
+  summarize(TotalGDP=sum(Value,na.rm=TRUE))
+#return to wide format
+gdp<-pivot_wider(gdp,names_from='Year',
+                            values_from='TotalGDP')
+#rename
+gdp<-rename(gdp,Region=Federal_State)
+
+
+```
+
+## PRE-PROCESS EDUCATION DATA
+
+```{r,warning=FALSE}
+#######################################################
+#filtering education variable
+education<-filter(education,Sex=='Total')
+education$Sex<-NULL
+education$Total<-NULL
+education<-rename(education,'Trade_and_technical_school_certificate'='Trade and technical school certificate')
+education<-rename(education,'Specialised_and_engineering_school_certificate_GDR'='Specialised and engineering school certific. (GDR)')
+education<-rename(education,"Doctor"="Doctor's degree")
+education$Specialised_and_engineering_school_certificate_GDR<-as.numeric(education$Specialised_and_engineering_school_certificate_GDR)
+education$Year<-as.numeric(education$Year)
+
+#check at missingness
+aggr(education)
+#impute data where were NA
+imp<-mice(education,method='pmm',maxit=10,m=1)
+education<-complete(imp,action='long',include=FALSE)
+
+education$.imp<-NULL
+education$.id<-NULL
+#sum u Student rate per 10,000 people and select
+education<-education%>%
+  mutate(Total=Trade_and_technical_school_certificate+Specialised_and_engineering_school_certificate_GDR+Bachelor+Master+Diploma+Doctor)
+education<-education%>%
+  select(Year,Region,Total)
+#change format
+education<-education%>%
+  pivot_wider(names_from='Year',
+              values_from='Total')
+
+```
+
+## PRE-PROCESS R&D DATA
+
+```{r,warning=FALSE}
+
+#########
+
+RD<-na.omit(RD)
+RD<-filter(RD,Unit=='EUR mn')
+RD$Unit<-NULL
+RD$Type<-NULL
+
+RD<-pivot_longer(RD, cols=('Baden-Württemberg':'Thüringen'),
+                 values_to='Value',
+                 names_to='Region')
+
+RD<-pivot_wider(RD,
+                names_from='Sector',
+                values_from='Value')
+
+RD$Gov<-RD$`Government, private non-profit institutions`
+RD$`Government, private non-profit institutions`<-NULL
+RD<-select(RD,Year,Region,Total)
+
+RD<-pivot_wider(RD,
+                names_from='Year',
+                values_from='Total')
+
+```
+
+## MERGING ALL DATA
+
+```{r,warning=FALSE}
+#merge data of all variables
+all_data<-merge(gdp, education, by='Region')
+all_data<-merge(all_data,RD, by="Region")
+all_data<-merge(all_data, germany, by='Region')
+#rename for comfort use
+all_data<-all_data%>%
+  rename(
+    GDP_2017 = `2017.x`,
+    GDP_2018 = `2018.x`,
+    GDP_2019 = `2019.x`,
+    Students_2017 = `2017.y`,
+    Students_2018 = `2018.y`,
+    Students_2019 = `2019.y`,
+    RD_2017=`2017`,
+    RD_2018=`2018`,
+    RD_2019=`2019`)
+
+#####
+#change to spatial data frame for mapping
+all_data<-st_as_sf(all_data)
+tmap_mode('plot')
+
+#adding new dataset for population
+population<- read_excel("demo_r_d2jan$defaultview_page_spreadsheet.xlsx", sheet='Sheet 1', skip=9)
+population<- select(population, -starts_with('...'))
+population<-na.omit(population)
+population<-select(population, 2:5)
+population<-rename(population, Region=`TIME...2`) # Create maps for comparison rd vs students within years 2017, 2018, and 2019
+
+all_data<- merge(all_data,population, by='Region')
+
+all_data <- all_data%>%
+  rename(Pop_2017=`2017`,
+         Pop_2018=`2018`,
+         Pop_2019=`2019`)
+all_data<-all_data%>%  
+  mutate(Student_Rate_2017=(Students_2017*1000/Pop_2017)*100,
+         Student_Rate_2018=(Students_2018*1000/Pop_2017)*100,
+         Student_Rate_2019=(Students_2019*1000/Pop_2019)*100)
+
+```
+
+## VIZUALIZATION OF SECTION 2
+
+The main goal of this section is to analyze the relationship between
+**GDP, R&D expenditures, and education** across Germany’s regions. The
+map from the first section is enhanced by adding bubbles that represent
+the number of students in higher education institutions. Six maps are
+created to show these relationships over the course of three years.
+First three maps show relationships between Regional GDP and Student
+Rate, while the other three maps represent correlation between R&D
+expenditure and Student Rate.
+
+```{r,message=FALSE, include=TRUE}
+
+
+# Create maps for comparison rd vs students within years 2017, 2018, and 2019
+
+
+rd_stud_2017<-tm_shape(all_data)+
+  tm_polygons(col='RD_2017', palette='YlOrRd', title='R&D expenditure(EUR mln)')+
+  tm_bubbles(size = "Student_Rate_2017", col='#d46ec9',
+             scale = c(1.5,2,3,4),
+             alpha=0.7,
+             title.size='Student rate per 10,000 people',
+             border.col = "black", 
+             border.lwd = 0.8,
+             legend.size.show = TRUE,
+             border.alpha = 1)+
+  tm_layout(legend.title.size = 1.5,
+            legend.text.size = 1,
+            legend.outside = TRUE,
+            main.title ="R&D vs Students(2017)",
+            bg.color = '#FFEFDB')
+
+rd_stud_2018<-tm_shape(all_data)+
+  tm_polygons(col='RD_2018', palette='YlOrRd', title='R&D expenditure(EUR mln)')+
+  tm_bubbles(size = "Student_Rate_2018", col='#d46ec9',
+             scale = c(1.5,2,3,4),
+             alpha=0.7,
+             title.size='Student rate per 10,000 people',
+             border.col = "black", 
+             border.lwd = 0.8,
+             legend.size.show = TRUE,
+             border.alpha = 1)+
+  tm_layout(legend.title.size = 1.5,
+            legend.text.size = 1,
+            legend.outside = TRUE,
+            main.title ="R&D vs Students(2018)",
+            bg.color = '#FFEFDB')
+
+rd_stud_2019<-tm_shape(all_data)+
+  tm_polygons(col='RD_2019', palette='YlOrRd', title='R&D expenditure(EUR mln)')+
+  tm_bubbles(size = "Student_Rate_2019", col='#d46ec9',
+             scale = c(1.5,2,3,4),
+             alpha=0.7,
+             title.size='Student rate per 10,000 people',
+             border.col = "black", 
+             border.lwd = 0.8,
+             legend.size.show = TRUE,
+             border.alpha = 1)+
+  tm_layout(legend.title.size = 1.5,
+            legend.text.size = 1,
+            legend.outside = TRUE,
+            main.title ="R&D vs Students(2019)",
+            bg.color = '#FFEFDB')
+
+## Create maps for comparison gdp vs students within years 2017, 2018, and 2019
+
+gdp_stud_2017<-tm_shape(all_data)+
+  tm_polygons(col='GDP_2017', palette='YlGnBu', title='Regional GDP(EUR mln)')+
+  tm_bubbles(size = "Student_Rate_2017", col='#d46ec9',
+             scale = c(1.5,2,3,4),
+             alpha=0.7,
+             title.size='Student rate per 10,000 people',
+             border.col = "black", 
+             border.lwd = 0.8,
+             legend.size.show = TRUE,
+             border.alpha = 1)+
+  tm_layout(legend.title.size = 1.5,
+            legend.text.size = 1,
+            legend.outside = TRUE,
+            main.title ="GDP vs Students(2017)",
+            bg.color = '#E0FFFF')
+
+gdp_stud_2018<-tm_shape(all_data)+
+  tm_polygons(col='GDP_2018', palette='YlGnBu', title='Regional GDP(EUR mln)')+
+  tm_bubbles(size = "Student_Rate_2018", col='#d46ec9',
+             scale = c(1.5,2,3,4),
+             alpha=0.7,
+             title.size='Student rate per 10,000 people',
+             border.col = "black", 
+             border.lwd = 0.8,
+             legend.size.show = TRUE,
+             border.alpha = 1)+
+  tm_layout(legend.title.size = 1.5,
+            legend.text.size = 1,
+            legend.outside = TRUE,
+            main.title ="GDP vs Students(2018)",
+            bg.color = '#E0FFFF')
+
+
+gdp_stud_2019 <- tm_shape(all_data) +
+  tm_polygons(col = 'GDP_2019', palette = 'YlGnBu', title = 'Regional GDP(EUR mln)') +
+  tm_bubbles(size = "Student_Rate_2019", col = '#d46ec9',
+             scale = c(1.5,2,3,4),
+             alpha = 0.7,
+             title.size = 'Student rate per 10,000 people',
+             border.col = "black", 
+             border.lwd = 0.8,
+             legend.size.show = TRUE,
+             border.alpha = 1) +
+  tm_layout(legend.title.size = 1.5,
+            legend.text.size = 1,
+            legend.outside = TRUE,
+            main.title = "GDP vs Student(2019)",
+            bg.color = '#E0FFFF')
+```
+
+## RESULTS OF VIZUALIZATION 2.1
+
+```{r,message=FALSE, include=TRUE}
+#arrange maps to show comparison
+
+tmap_arrange(rd_stud_2017, gdp_stud_2017, ncol=2)
+```
+
+```{r,message=FALSE, include=TRUE}
+tmap_arrange(rd_stud_2018, gdp_stud_2018, ncol=2)
+```
+
+```{r,message=FALSE, include=TRUE}
+tmap_arrange(rd_stud_2019, gdp_stud_2019, ncol=2)
+```
+
+Interpreting regions like **Bavaria and Baden-Württemberg** in southern
+Germany display higher GDP, highlighted with darker colors, while
+eastern regions such as **Saxony and Brandenburg** show lighter shades,
+indicating lower economic output, the distribution of R&D expenditures
+is very similar to GDP patterns, with strong investments in southern
+regions and lower values in the east. Also, student rate were
+**unexpectedly small** in more developed regions with high investment in
+innovation, such as North Rhine-Westphalia, Bavaria and
+Baden-Württemberg it shows by smaller size of bubbles. The findings
+suggest that student percentages and innovation are not necessarily
+higher in wealthier regions. Developed regions may have lower
+percentages of students due to large populations and diversified
+economies. Less developed regions exhibit higher percentages as
+education serves as a key lever for economic development. Faggian et al.
+(2007) considered that students from economically weaker regions often
+migrate to better-developed areas for higher education. The
+socio-economic characteristics of regions affect the capacity to
+transform R&D investments into human capital and innovation
+(Bilbao‐Osorio, 2004). Less developed regions often emphasize the
+expansion of higher education as a tool for economic growth because
+other factors are limited. (Ozturk, 2008). Therefore, while education is
+clearly an important factor in a country’s development, it will not
+singlehandedly lead to significant economic growth (Chen, E., 2014)
+
+## RESULTS OF VIZUALIZATION 2.2
+
+```{r,message=FALSE, include=FALSE}
+#save animation
+
+tmap_animation(list(rd_stud_2017,rd_stud_2018,rd_stud_2019),filename = "Section_2_rd_education.gif",delay = 100,width = 800,height = 600)
+tmap_animation(list(gdp_stud_2017,gdp_stud_2018,gdp_stud_2019),filename = "Section_2_gdp_education.gif",delay = 100,width = 800,height = 600)
+
+```
+
+![](Section_2_rd_education.gif) ![](Section_2_gdp_education.gif)
+
+## CONCLUSION OF SECTION 2
+
+Our hypothesis that regions with higher GDP and innovation would have
+more students was **not fully supported by the results.** While southern
+regions with higher economic output and innovation investments do
+exhibit larger economies, they also have a lower percentage of students.
+This suggests that other factors, such as population size and economic
+structure, may influence these patterns. The spatial distribution of
+GDP, R&D and education shows regional inequalities in Germany. Also we
+find out that southern regions consistently outperform others, while the
+eastern regions lag behind.
+
+**References:**
+
+[1] Ozturk, I. (2008). The role of education in economic development: a
+theoretical perspective. Available at SSRN 1137541.
+<https://papers.ssrn.com/sol3/papers.cfm?abstract_id=1137541>
+
+[2] Grant, C. (2017). The contribution of education to economic growth.
+K4D Helpdesk Report. Brighton, UK: Institute of Development Studies, 25.
+<https://www.academia.edu/90176425/The_contribution_of_education_to_economic_growth>
+
+[3] Bilbao‐Osorio, B., & Rodríguez‐Pose, A. (2004). From R&D to
+innovation and economic growth in the EU. Growth and Change, 35(4),
+434-455.https://onlinelibrary.wiley.com/doi/abs/10.1111/j.1468-2257.2004.00256.x?casa_token=a5YRTSDXFGEAAAAA:7t_dn0IzqY83zdpKyr16jzdAmwNgbhRqrIKTLATCHZlMBPFLQX_AqzGM5ENQ8FPAU7RflLktG4SbE7nu2A
+
+[4] Chen, E. (2014). The Impact of Education on Economic Growth
+(Doctoral dissertation, Stern School of Business New
+York).https://www.stern.nyu.edu/sites/default/files/assets/documents/Emil%20Chen_Thesis_Honors%202014.pdf
+
+[5] Oketch, M., McCowan, T., & Schendel, R. (2014). The impact of
+tertiary education on development: A rigorous literature
+review.https://discovery.ucl.ac.uk/id/eprint/10068500/
+
+[6] Faggian, A., McCann, P., & Sheppard, S. (2007). Human capital,
+higher education and graduate migration: an analysis of Scottish and
+Welsh students. Urban Studies, 44(13), 2511-2528.
+<https://www.jstor.org/stable/pdf/43197599.pdf>
+
+## SECTION 3
+
+The third section is measuring how distances in our map_data dataset
+impact a particular variable. In our case, we have two variables,
+Research and Development (monetary investment in research and
+development across regions) and Education (the number of educated
+individuals (in thousands) across regions) in Germany. First of all, we
+made a data preparation as in section 1 and 2. Thus, the final cleaned
+version is **map_data**, which we will use. It has sorted necessary
+variables that needed as: **gdpmln:** GDP in millions for each region
+**rdmln:** R&D expenditure in millions for each region **eduthous:**
+Education levels in thousands **geometry:** Spatial geometry of regions
+**Ii_gdp and Ii_rdmln:** Local Moran’s I values for GDP and R&D
+
+Additionally, there is a step that is the most significant one for
+conducting the analysis - downloading the libraries for each of the
+required steps.
+
+## DATA PREPARATION
+
+```{r,warning=FALSE}
+
+education<-read_excel('Population (aged 15 and over).xlsx',sheet='Used')
+RD<-read_excel('R&D expenditure and staff.xlsx')
+gdp<-read_excel('gdp.xlsx',sheet='Sheet 1',skip=7)
+
+```
+
+## PRE-PROCESS GDP DATA
+
+```{r,warning=FALSE}
+
+######################################################### GDP ACROSS REGIONS
+
+
+gdp_clean<-select(gdp,TIME,starts_with('20'))
+gdp_clean<-rename(gdp_clean,Region=TIME)
+gdp_clean<-na.omit(gdp_clean)
+
+gdp_clean_period<-select(gdp_clean,'Region','2017','2018','2019')
+gdp_test<-gdp_clean_period
+
+region_to_state <- list(
+  "Baden-Württemberg_" = c("Stuttgart", "Karlsruhe", "Freiburg", "Tübingen"),
+  "Bayern_" = c("Oberbayern", "Niederbayern", "Oberpfalz", "Oberfranken", "Mittelfranken", "Unterfranken", "Schwaben"),
+  "Berlin_" = "Berlin",
+  "Brandenburg_" = "Brandenburg",
+  "Bremen_" = "Bremen",
+  "Hamburg_" = "Hamburg",
+  "Hessen_" = c("Darmstadt", "Gießen", "Kassel"),
+  "Mecklenburg-Vorpommern_"="Mecklenburg-Vorpommern",
+  "Niedersachsen_" = c("Braunschweig", "Hannover", "Lüneburg", "Weser-Ems"),
+  "Nordrhein-Westfalen_" = c("Köln", "Münster", "Detmold", "Arnsberg"),
+  "Rheinland-Pfalz_" = c("Rheinhessen-Pfalz","Koblenz","Trier"),
+  "Saarland_" = "Saarland",
+  "Sachsen_" = c("Dresden", "Chemnitz", "Leipzig"),
+  "Sachsen-Anhalt_" = "Sachsen-Anhalt",
+  "Schleswig-Holstein_" = "Schleswig-Holstein",
+  "Thüringen_" = "Thüringen")
+
+
+region_to_state_vec <- unlist(region_to_state)
+
+gdp_test$FederalState <- names(region_to_state_vec)[match(gdp_test$Region, region_to_state_vec)]
+
+gdp_test<-gdp_test%>%
+  separate(FederalState, into = c("FederalState", "number"), sep = "_")
+gdp_test$number=NULL
+
+gdp_test_long<-pivot_longer(gdp_test,cols=starts_with('20'),
+                                      values_to='Value',
+                                      names_to='Year')
+gdp_test_long$Region<-NULL                            
+
+gdp_test_sum<-gdp_test_long%>%
+  group_by(FederalState,Year)%>%
+  summarize(TotalGDP=sum(Value,na.rm=TRUE))
+
+gdp_clean_full<-pivot_wider(gdp_test_sum,names_from='Year',
+                            values_from='TotalGDP')
+gdp_clean_full<-rename(gdp_clean_full,Region=FederalState)
+
+
+```
+
+## PRE-PROCESS EDUCATION DATA
+
+```{r,warning=FALSE}
+####################################################### EDUCATION ACROSS REGIONS
+
+
+education_filtered<-filter(education,Sex=='Total')
+education_filtered$Sex<-NULL
+education_filtered$Total<-NULL
+education_filtered$`Specialised and engineering school certific. (GDR)`<-as.numeric(education_filtered$`Specialised and engineering school certific. (GDR)`)
+education_filtered$Year<-as.numeric(education_filtered$Year)
+education_filtered<-rename(education_filtered,'Trade_and_technical_school_certificate'='Trade and technical school certificate')
+education_filtered<-rename(education_filtered,'Specialised_and_engineering_school_certificate_GDR'='Specialised and engineering school certific. (GDR)')
+education_filtered<-rename(education_filtered,"Doctor"="Doctor's degree")
+
+library(VIM)
+aggr(education_filtered)
+
+library(mice)
+library(foreign)
+imp<-mice(education_filtered,method='pmm',maxit=10,m=1)
+?complete()
+education_filtered<-complete(imp,action='long',include=FALSE)
+
+education_filtered$.imp<-NULL
+education_filtered$.id<-NULL
+
+education_filtered<-education_filtered%>%
+  mutate(Total=Trade_and_technical_school_certificate+Specialised_and_engineering_school_certificate_GDR+Bachelor+Master+Diploma+Doctor)
+education_filtered<-education_filtered%>%
+  select(Year,Region,Total)
+
+education_clean_full<-education_filtered%>%
+  pivot_wider(names_from='Year',
+              values_from='Total')
+
+```
+
+## PRE-PROCESS R&D DATA
+
+```{r,warning=FALSE}
+
+######################################################### RESEARCH AND DEVELOPMENT ACROSS REGIONS
+
+
+
+RD_filtered<-na.omit(RD)
+RD_filtered<-filter(RD_filtered,Unit=='EUR mn')
+RD_filtered$Unit<-NULL
+RD_filtered$Type<-NULL
+
+RD_filtered<-pivot_longer(RD_filtered, cols=('Baden-Württemberg':'Thüringen'),
+                          values_to='Value',
+                          names_to='Region')
+RD_filtered<-pivot_wider(RD_filtered,
+                         names_from='Sector',
+                         values_from='Value')
+
+RD_filtered$Gov<-RD_filtered$`Government, private non-profit institutions`
+RD_filtered$`Government, private non-profit institutions`<-NULL
+RD_total<-select(RD_filtered,Year,Region,Total)
+
+RD_clean<-pivot_wider(RD_total,
+                         names_from='Year',
+                         values_from='Total')
+
+
+```
+
+## MERGING EVERYTHING
+
+```{r,warning=FALSE}
+############################################################# MERGING AND PRE-PROCESS FULL DATA
+
+full_data<-merge(gdp_clean_full,RD_clean,by='Region')
+full_data<-merge(full_data,education_clean_full,by='Region')
+
+full_data<-full_data%>%
+  rename('2017_gdpmln'='2017.x')%>%
+  rename('2018_gdpmln'='2018.x')%>%
+  rename('2019_gdpmln'='2019.x')%>%
+  rename('2017_rdmln'='2017.y')%>%
+  rename('2018_rdmln'='2018.y')%>%
+  rename('2019_rdmln'='2019.y')%>%
+  rename('2017_eduthous'='2017')%>%
+  rename('2018_eduthous'='2018')%>%
+  rename('2019_eduthous'='2019')
+
+full_data<-pivot_longer(full_data,cols=starts_with('20'),
+                        names_to='Year',
+                        values_to='Value')
+full_data<-separate(full_data,col='Year',into=c('Year','Type'),sep='_')
+full_data<-pivot_wider(full_data,
+                       names_from='Type',
+                       values_from='Value')
+
+############################################################# UPLOADING MAP AND MERGING WITH FULL DATA
+
+library(sf)
+
+germany<-st_read('gadm41_DEU_2.shp')
+germany<-germany<-rename(germany,Region=NAME_1)
+
+map_data<-merge(germany,full_data,by='Region')
+map_data<-select(map_data,Region,Year,gdpmln,rdmln,eduthous,geometry)
+
+map_data<-st_as_sf(map_data)
+```
+
+Secondly, for better understanding the data, we will visualize the plot
+distribution. The first plot will be regarding the variable Education,
+while the second one is R&D respectively. By illustrating choropleth we
+see the distribution of education levels (eduthous) among regions in
+Germany. Their darker shades show regions with higher education such as
+urban areas, whereas lighter ones represent lower education levels.
+Furthermore, **quantile classification** ensures that regions are
+divided into equal-sized groups for a clearer comparison.
+
+```{r,warning=FALSE}
+colnames(map_data)
+#plot the distribution of variables (Education)
+tm_shape(map_data) + 
+  tm_fill("eduthous", palette = "Reds",   
+          style = "quantile", title = "Education (thousands)") +
+  tm_borders(alpha = 0.4) +
+  tm_compass(position = c("left", "top")) + 
+  tm_layout(
+    title = "Education Distribution by Region", 
+    legend.text.size = 0.5,
+    legend.title.size = 0.7,
+    legend.position = c("right", "bottom"), 
+    legend.width = 1.5, 
+    frame = FALSE
+  )
+```
+
+The second bubble plot illustrates the R&D expenditure, with larger and
+darker blue bubbles **higher R&D investments**, while the opposite for
+the lower investments as regions with lack of infrastructure and
+funding..
+
+```{r,warning=FALSE}
+#plot the distribution for another variable (R&D)
+tm_shape(map_data) + 
+  tm_borders(alpha = 0.4) +  
+  tm_bubbles(size = "rdmln", col = "rdmln", 
+             palette = "Blues", style = "quantile", 
+             legend.size.show = FALSE, title.col = "R&D Expenditure (Million)") +
+  tm_layout(
+    legend.text.size = 1.1,
+    legend.title.size = 1.4,
+    frame = FALSE
+  )
+```
+
+Third plot is **2 in 1**, which represents two variables in one plot,
+where we can conclude that regions with higher education levels often
+align with regions that invest more in R&D. This suggests that a more
+educated population contributes to innovation and research activities
+and educational infrastructure supports industries that prioritize R&D
+investments.
+
+```{r,warning=FALSE}
+#2 in 1
+tm_shape(map_data) + 
+  tm_fill("eduthous", palette = "Reds",  
+          style = "quantile", title = "Education Levels (Thousand)") +
+  tm_borders(alpha = 0.4) +  
+  tm_shape(map_data) + 
+  tm_bubbles(size = "rdmln", col = "rdmln",  
+             palette = "Blues", style = "quantile", 
+             legend.size.show = FALSE, title.col = "R&D Expenditure", 
+             border.col = "black", border.lwd = 0.1, border.alpha = 0.1) +
+  tm_layout(
+    legend.text.size = 0.8,
+    legend.title.size = 1.1,
+    frame = FALSE
+  )
+```
+
+## AUTO-SPATIAL ANALYSIS: NEIGHBOURS
+
+The analysis explores whether regions with similar education levels, or
+R&D expenditures are geographically clustered. To achieve this, spatial
+relationships between regions are defined using two criteria: the
+"queen" criterion, where regions sharing any boundary point are
+neighbors, and the "rook" criterion, where only regions sharing an edge
+qualify as neighbors. The “poly2nb” function is used to establish these
+neighbor relationships, while the “nb2listw” function converts them into
+a spatial weight matrix. This matrix quantifies the influence of
+neighboring regions on one another, forming the foundation for
+statistical tests like Moran’s I, which measures global spatial
+autocorrelation.
+
+```{r,warning=FALSE}
+#let's find neighbours
+
+library(tmap)
+library(sf)
+library(spdep)
+neighbours <- poly2nb(map_data) 
+neighbours
+
+```
+
+**Output:**
+
+Number of regions: 1209 #number of direct spatial connections exist
+between regions
+
+Number of nonzero links: 21354 #proportion of the total possible spatial
+connections
+
+Percentage nonzero weights: 1.460921 
+
+Average number of links: 17.66253  #each region has around 17.6
+neighbors
+
+Weights style: W (the weights matrix is row-standardized. Each row sums
+to 1, ensuring that the influence of neighbors is proportionally
+distributed)
+
+Weights constants summary:
+
+     n      nn   S0       S1       S2
+
+W 1209 1461681 1209 157.2312 5004.012\
+Row-standardized weights show that the spatial relationships are
+comparable across regions regardless of the number of neighbors. The
+summary statistics (S0, S1, S2) reflect the structure and scaling of the
+spatial relationships.
+
+## AUTO-SPATIAL ANALYSIS: SPATIAL AUTOCORRELATION
+
+This section applies Moran's I statistics to examine spatial
+autocorrelation in R&D expenditures across regions. Global Moran’s I,
+computed using **moran.test**, quantifies whether similar values cluster
+spatially. A significant result suggests that high or low R&D values are
+not randomly distributed but exhibit clustering patterns.
+
+The Moran plot visualizes this relationship by comparing each region’s
+R&D values against the spatially lagged values of its neighbors,
+offering insights into positive or negative spatial autocorrelation.
+
+Local Moran’s I, calculated with **localmoran**, identifies specific
+regions contributing to the observed global pattern. Regions with
+significant local Moran statistics are potential hotspots (clusters of
+high values) or cold spots (clusters of low values).
+
+This analysis helps pinpoint spatial patterns, aiding in understanding
+regional disparities and informing policy decisions for equitable
+resource distribution and development strategies.
+
+```{r,warning=FALSE}
+plot(map_data, border = 'pink')
+```
+
+```{r,warning=FALSE}
+#spatial autocorrelation
+
+neighbours2 <- poly2nb(map_data, queen = FALSE) 
+neighbours2
+
+listw <- nb2listw(neighbours2) 
+listw
+```
+
+**Moran I test under randomisation**
+
+data:  map_data\$rdmln  
+
+weights: listw    
+
+Moran I statistic standard deviate = 87.891, p-value \< 2.2e-16
+
+alternative hypothesis: greater
+
+**Moran I statistic       Expectation          Variance**
+
+**0.9049065164     -0.0008278146      0.0001061966**
+
+A value of 0.9 indicates a very high positive spatial autocorrelation.
+Regions with similar R&D expenditure levels tend to cluster
+geographically.
+
+**Standard deviate:** 87.891 is the z-score for Moran's I. A very high
+z-score indicates strong deviation from randomness, further confirming
+significant spatial clustering
+
+#### The expected Moran's I value under the null hypothesis (random distribution). This is close to zero, which aligns with no spatial autocorrelation.
+
+#### The variance of Moran's I under the null hypothesis, used to compute the test statistic.
+
+**Null Hypothesis:** There is no spatial autocorrelation (R&D values are
+randomly distributed).
+
+**Alternative Hypothesis:** Spatial autocorrelation exists (R&D values
+are spatially clustered). **p-value \< 2.2e-16:** reject the null
+hypothesis.
+
+**Conclusion: There is significant positive spatial autocorrelation in
+R&D expenditure.**
+
+## AUTO-SPATIAL ANALYSIS: MORAN TEST
+
+This section integrates the calculated local Moran's I statistics with
+the polygon shapefile of regional boundaries to visualize spatial
+autocorrelation patterns geographically. The results from localmoran are
+merged into the map_dataobject using cbind, ensuring that each region's
+polygon is enriched with its respective local Moran statistic.
+
+The visualization, created using the tm_shape and tm_fill functions,
+displays regions colored based on their local Moran's I values. A
+quantile classification method ensures an even distribution of values
+across categories, making patterns easy to interpret. Regions with
+higher or lower values are highlighted, reflecting clusters of similar
+R&D expenditure levels.
+
+The map provides an intuitive spatial representation of local
+clustering, with the borders overlaid for clarity. The visualization
+facilitates identifying specific regions contributing to global spatial
+patterns, aiding in spatial decision-making and policy interventions.
+
+```{r}
+# global spatial autocorrelation
+
+moran.test(map_data$rdmln, listw)
+```
+
+## AUTO-SPATIAL ANALYSIS: MORAN PLOT
+
+```{r,warning=FALSE}
+#moran plot
+
+moran <- moran.plot(map_data$rdmln, listw = nb2listw(neighbours2, style = "W"))
+```
+
+## AUTO-SPATIAL ANALYSIS: LOCAL MORAN OUTPUT & MORAN MAP
+
+```{r,warning=FALSE}
+#local moran output
+
+local <- localmoran(x = map_data$rdmln, listw = nb2listw(neighbours2, style = "W"))
+
+# binds results to our polygon shapefile
+moran.map <- cbind(map_data, local)
+# maps the results
+tm_shape(moran.map) + tm_fill(col = "Ii", style = "quantile", title = "local moran statistic") +
+  tm_borders(alpha = 0.4) +
+  tm_layout(legend.outside = TRUE)
+
+```
+
+**References:**
+
+[1] Kiese, M. (2019). Regional cluster policies in Germany: challenges,
+impacts and evaluation practices. The Journal of Technology Transfer,
+44(6), 1698-1719.
+
+[2] Haak, R., Gautam, V., Walsh, S. T., & White, C. G. (2014). The role
+of economic cluster perspectives in regional economic development. World
+Technopolis Review, 3(1), 17-29.
+
+[3] Szendi, D. CONVERGENCE AND SPATIAL AUTOCORRELATION IN
+GERMANY–SPECIFIC GDP INEQUALITIES 30 YEARS AFTER THE FALL OF THE BERLIN
+WALL.
+
+[4] Zierahn, U. (2012). The importance of spatial autocorrelation for
+regional employment growth in Germany. Jahrbuch für
+Regionalwissenschaft, 32, 19-43.
+
+## DATASETS:
+
+All datasets and information were taken from the official Germany
+statistics website:
+<https://www-genesis.destatis.de/datenbank/online/statistics> And at
+official website of the European Union(Eurostat):
+<https://ec.europa.eu/eurostat>
